@@ -1,8 +1,8 @@
-# CMOS Noise Analyzer
+# CMOS Noise Analyzer 📷📉
 
 This project analyzes sets of FITS files (typically dark frames) from a CMOS camera to characterize sensor noise properties under different conditions (GAIN, Temperature).
 
-## Functionality
+## Functionality 🛠️
 
 The main script (`main.py`) performs the following steps:
 
@@ -26,7 +26,7 @@ The main script (`main.py`) performs the following steps:
     *   Saves the calculated metrics for all processed groups into a CSV file (path specified in `config.py`).
     *   Displays a plot of the histogram for each group (can be disabled in `histogram_metrics.py`).
 
-## Project Structure
+## Project Structure 📁
 
 ```
 cmos-noise-analyzer/
@@ -45,7 +45,7 @@ cmos-noise-analyzer/
 └── (output files like gaussian_fit_summary.csv) # Generated output
 ```
 
-## Setup and Usage
+## Setup and Usage 🚀
 
 1.  **Prerequisites:**
     *   Python 3.x
@@ -74,7 +74,7 @@ cmos-noise-analyzer/
     *   Find the summary results in the CSV file specified in `config.py`.
     *   Find any generated plots in the directory specified in `config.py`.
 
-## Future Enhancements
+## Future Enhancements ✨
 
 *   Integrate the `gaussian_fitting.py` module into the main workflow to calculate fit parameters alongside histogram metrics.
 *   Utilize `visualization.py` to generate and save plots of the Gaussian fits and potentially overlay plots comparing different groups.
