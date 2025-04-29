@@ -4,7 +4,9 @@ import csv
 
 # Define constants
 AUTORUN_LOG_PREFIX = "Autorun_Log"  # Prefix for autorun log files
-LOG_DIRECTORY = r"G:\My Drive\Photography\Astrophotography\DSOs\NGC2244SatelliteCluster\01-27-2025"  # Updated log directory path
+DIRECTORY = os.getenv("DIRECTORY")  
+if not DIRECTORY:
+    raise ValueError("DIRECTORY not found in .env file or environment variables.")
 
 # Define output CSV filenames
 OUTPUT_CSV_FILES = {
@@ -96,7 +98,7 @@ def parse_log_file(file_path):
                 if match:
                     EVENT_DATA['autofocus'].append({
                         'Start Time': match.group(1),
-                        'Details': match.group(2)
+                        'Details':    match.group(2)
                     })
                     continue
 
@@ -104,9 +106,9 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['autofocus_end_success'].search(line)
                 if match:
                     EVENT_DATA['autofocus'].append({
-                        'End Time': match.group(1),
+                        'End Time':             match.group(1),
                         'Final Focus Position': match.group(2),
-                        'Status': 'Success'
+                        'Status':               'Success'
                     })
                     continue
 
@@ -114,9 +116,9 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['autofocus_end_failure'].search(line)
                 if match:
                     EVENT_DATA['autofocus'].append({
-                        'End Time': match.group(1),
+                        'End Time':             match.group(1),
                         'Final Focus Position': 'Failed',
-                        'Status': 'Failure'
+                        'Status':               'Failure'
                     })
                     continue
 
@@ -125,7 +127,7 @@ def parse_log_file(file_path):
                 if match:
                     EVENT_DATA['autorun'].append({
                         'Start Time': match.group(1),
-                        'Details': match.group(2)
+                        'Details':    match.group(2)
                     })
                     continue
 
@@ -134,7 +136,7 @@ def parse_log_file(file_path):
                 if match:
                     EVENT_DATA['autorun'].append({
                         'End Time': match.group(1),
-                        'Details': match.group(2)
+                        'Details':  match.group(2)
                     })
                     continue
 
@@ -143,8 +145,8 @@ def parse_log_file(file_path):
                 if match:
                     EVENT_DATA['target_coordinates'].append({
                         'Timestamp': match.group(1),
-                        'RA': match.group(2),
-                        'DEC': match.group(3)
+                        'RA':        match.group(2),
+                        'DEC':       match.group(3)
                     })
                     continue
 
@@ -152,7 +154,7 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['tracking_start'].search(line)
                 if match:
                     EVENT_DATA['tracking'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'Start'
                     })
                     continue
@@ -161,7 +163,7 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['tracking_stop'].search(line)
                 if match:
                     EVENT_DATA['tracking'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'Stop'
                     })
                     continue
@@ -171,9 +173,9 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['guide_stop_guiding'].search(line)
                 if match:
                     EVENT_DATA['guide'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'Stop Guiding',
-                        'Details': ''
+                        'Details':    ''
                     })
                     continue
 
@@ -181,9 +183,9 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['guide_start_guiding'].search(line)
                 if match:
                     EVENT_DATA['guide'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'Start Guiding',
-                        'Details': ''
+                        'Details':    ''
                     })
                     continue
 
@@ -191,9 +193,9 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['guide_star_lost'].search(line)
                 if match:
                     EVENT_DATA['guide'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'Guide Star Lost',
-                        'Details': ''
+                        'Details':    ''
                     })
                     continue
 
@@ -201,9 +203,9 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['guide_reselect_star'].search(line)
                 if match:
                     EVENT_DATA['guide'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'ReSelect Guide Star',
-                        'Details': ''
+                        'Details':    ''
                     })
                     continue
 
@@ -211,9 +213,9 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['guide_settle'].search(line)
                 if match:
                     EVENT_DATA['guide'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'Guide Settle',
-                        'Details': ''
+                        'Details':    ''
                     })
                     continue
 
@@ -221,9 +223,9 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['guide_settle_done'].search(line)
                 if match:
                     EVENT_DATA['guide'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'Settle Done',
-                        'Details': ''
+                        'Details':    ''
                     })
                     continue
 
@@ -231,9 +233,9 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['guide_settle_failed'].search(line)
                 if match:
                     EVENT_DATA['guide'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'Settle Failed',
-                        'Details': ''
+                        'Details':    ''
                     })
                     continue
 
@@ -241,9 +243,9 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['guide_select_failed'].search(line)
                 if match:
                     EVENT_DATA['guide'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'Select Guide Star Failed',
-                        'Details': 'No star found'
+                        'Details':    'No star found'
                     })
                     continue
 
@@ -251,9 +253,9 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['exposure'].search(line)
                 if match:
                     EVENT_DATA['exposure'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':         match.group(1),
                         'Exposure Time (s)': match.group(2),
-                        'Image Number': match.group(3)
+                        'Image Number':      match.group(3)
                     })
                     continue
 
@@ -261,11 +263,11 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['plate_solve_begin'].search(line)
                 if match:
                     EVENT_DATA['plate_solve'].append({
-                        'Timestamp': match.group(1),
-                        'Status': 'Begin',
-                        'RA': '',
-                        'DEC': '',
-                        'Angle': '',
+                        'Timestamp':   match.group(1),
+                        'Status':      'Begin',
+                        'RA':          '',
+                        'DEC':         '',
+                        'Angle':       '',
                         'Star Number': ''
                     })
                     continue
@@ -274,11 +276,11 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['plate_solve_success'].search(line)
                 if match:
                     EVENT_DATA['plate_solve'].append({
-                        'Timestamp': match.group(1),
-                        'Status': 'Succeeded',
-                        'RA': match.group(2),
-                        'DEC': match.group(3),
-                        'Angle': match.group(4),
+                        'Timestamp':   match.group(1),
+                        'Status':      'Succeeded',
+                        'RA':          match.group(2),
+                        'DEC':         match.group(3),
+                        'Angle':       match.group(4),
                         'Star Number': match.group(5)
                     })
                     continue
@@ -288,20 +290,21 @@ def parse_log_file(file_path):
                 if match:
                     EVENT_DATA['meridian_flip'].append({
                         'Start Time': match.group(1),
-                        'Details': match.group(2),
-                        'Event': ''
+                        'Details':    match.group(2),
+                        'Event':      '' # Placeholder, might be updated by other events
                     })
                     continue
 
                 # Meridian Flip Start
                 match = REGEX_PATTERNS['meridian_flip_start'].search(line)
                 if match:
+                    # Note: This might create a separate entry from Begin/End
                     EVENT_DATA['meridian_flip'].append({
-                        'Timestamp': match.group(1),
-                        'Event': f'Meridian Flip {match.group(2)}# Start',
-                        'Start Time': '',
-                        'End Time': '',
-                        'Details': ''
+                        'Timestamp':  match.group(1),
+                        'Event':      f'Meridian Flip {match.group(2)}# Start',
+                        'Start Time': '', # Not captured in this line
+                        'End Time':   '', # Not captured in this line
+                        'Details':    ''  # Not captured in this line
                     })
                     continue
 
@@ -309,9 +312,10 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['meridian_flip_end'].search(line)
                 if match:
                     EVENT_DATA['meridian_flip'].append({
-                        'End Time': match.group(1),
-                        'Details': match.group(2),
-                        'Event': ''
+                        'End Time':   match.group(1),
+                        'Details':    match.group(2),
+                        'Event':      '', # Placeholder
+                        'Start Time': ''  # Placeholder
                     })
                     continue
 
@@ -319,10 +323,10 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['auto_center_begin'].search(line)
                 if match:
                     EVENT_DATA['auto_center'].append({
-                        'Start Time': match.group(1),
+                        'Start Time':         match.group(1),
                         'Auto-Center Number': match.group(2),
-                        'End Time': '',
-                        'Details': ''
+                        'End Time':           '', # Placeholder
+                        'Details':            ''  # Placeholder
                     })
                     continue
 
@@ -330,10 +334,10 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['auto_center_end'].search(line)
                 if match:
                     EVENT_DATA['auto_center'].append({
-                        'End Time': match.group(1),
-                        'Details': match.group(2),
-                        'Start Time': '',
-                        'Auto-Center Number': ''
+                        'End Time':           match.group(1),
+                        'Details':            match.group(2),
+                        'Start Time':         '', # Placeholder
+                        'Auto-Center Number': ''  # Placeholder
                     })
                     continue
 
@@ -342,8 +346,8 @@ def parse_log_file(file_path):
                 if match:
                     EVENT_DATA['mount_slew'].append({
                         'Timestamp': match.group(1),
-                        'RA': match.group(2),
-                        'DEC': match.group(3)
+                        'RA':        match.group(2),
+                        'DEC':       match.group(3)
                     })
                     continue
 
@@ -351,7 +355,7 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['wait_message'].search(line)
                 if match:
                     EVENT_DATA['wait'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':    match.group(1),
                         'Wait Message': match.group(2)
                     })
                     continue
@@ -360,7 +364,7 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['logging_enabled'].search(line)
                 if match:
                     EVENT_DATA['logging'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'Enabled'
                     })
                     continue
@@ -369,104 +373,109 @@ def parse_log_file(file_path):
                 match = REGEX_PATTERNS['logging_disabled'].search(line)
                 if match:
                     EVENT_DATA['logging'].append({
-                        'Timestamp': match.group(1),
+                        'Timestamp':  match.group(1),
                         'Event Type': 'Disabled'
                     })
                     continue
 
-    def find_log_files(directory, prefix):
-        """
-        Finds all log files in a directory that start with the given prefix.
+    except FileNotFoundError:
+        print(f"Error: Log file not found at {file_path}")
+    except Exception as e:
+        print(f"An error occurred while parsing {file_path}: {e}")
 
-        Args:
-            directory (str): The directory to search for log files.
-            prefix (str): The prefix that log files should start with.
+def find_log_files(directory, prefix):
+    """
+    Finds all log files in a directory that start with the given prefix.
 
-        Returns:
-            list: A list of file paths matching the prefix.
-        """
-        return [
-            os.path.join(directory, file)
-            for file in os.listdir(directory)
-            if file.startswith(prefix) and file.endswith('.txt')  # Assuming log files have .txt extension
-        ]
+    Args:
+        directory (str): The directory to search for log files.
+        prefix (str): The prefix that log files should start with.
 
-    def write_csv(event_type, data):
-        """
-        Writes event data to a CSV file.
+    Returns:
+        list: A list of file paths matching the prefix.
+    """
+    return [
+        os.path.join(directory, file)
+        for file in os.listdir(directory)
+        if file.startswith(prefix) and file.endswith('.txt')  # Assuming log files have .txt extension
+    ]
 
-        Args:
-            event_type (str): The type of event.
-            data (list): The list of event dictionaries.
-        """
-        if not data:
-            return  # Skip if no data to write
+def write_csv(event_type, data):
+    """
+    Writes event data to a CSV file.
 
-        # Define the output file path
-        output_file = os.path.join(LOG_DIRECTORY, OUTPUT_CSV_FILES[event_type])
+    Args:
+        event_type (str): The type of event.
+        data (list): The list of event dictionaries.
+    """
+    if not data:
+        return  # Skip if no data to write
 
-        # Define the CSV headers based on event type
-        headers = []
-        if event_type == 'autofocus':
-            headers = ['Start Time', 'End Time', 'Final Focus Position', 'Status']
-        elif event_type == 'autorun':
-            headers = ['Start Time', 'End Time', 'Details']
-        elif event_type == 'target_coordinates':
-            headers = ['Timestamp', 'RA', 'DEC']
-        elif event_type == 'tracking':
-            headers = ['Timestamp', 'Event Type']
-        elif event_type == 'guide':
-            headers = ['Timestamp', 'Event Type', 'Details']
-        elif event_type == 'exposure':
-            headers = ['Timestamp', 'Exposure Time (s)', 'Image Number']
-        elif event_type == 'plate_solve':
-            headers = ['Timestamp', 'Status', 'RA', 'DEC', 'Angle', 'Star Number']
-        elif event_type == 'meridian_flip':
-            headers = ['Start Time', 'End Time', 'Details', 'Event']
-        elif event_type == 'auto_center':
-            headers = ['Start Time', 'End Time', 'Details', 'Auto-Center Number']
-        elif event_type == 'mount_slew':
-            headers = ['Timestamp', 'RA', 'DEC']
-        elif event_type == 'wait':
-            headers = ['Timestamp', 'Wait Message']
-        elif event_type == 'logging':
-            headers = ['Timestamp', 'Event Type']
-        else:
-            headers = ['Timestamp', 'Event Type', 'Details']
+    # Define the output file path
+    output_file = os.path.join(DIRECTORY, OUTPUT_CSV_FILES[event_type])
 
-        try:
-            with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=headers)
-                writer.writeheader()
-                for entry in data:
-                    # Remove empty keys to avoid writing unnecessary columns
-                    cleaned_entry = {k: v for k, v in entry.items() if v}
-                    writer.writerow(cleaned_entry)
-            print(f"{event_type.capitalize()} events have been written to {output_file}")
-        except Exception as e:
-            print(f"An error occurred while writing {event_type} events to CSV: {e}")
+    # Define the CSV headers based on event type
+    headers = []
+    if event_type == 'autofocus':
+        headers = ['Start Time', 'End Time', 'Final Focus Position', 'Status']
+    elif event_type == 'autorun':
+        headers = ['Start Time', 'End Time', 'Details']
+    elif event_type == 'target_coordinates':
+        headers = ['Timestamp', 'RA', 'DEC']
+    elif event_type == 'tracking':
+        headers = ['Timestamp', 'Event Type']
+    elif event_type == 'guide':
+        headers = ['Timestamp', 'Event Type', 'Details']
+    elif event_type == 'exposure':
+        headers = ['Timestamp', 'Exposure Time (s)', 'Image Number']
+    elif event_type == 'plate_solve':
+        headers = ['Timestamp', 'Status', 'RA', 'DEC', 'Angle', 'Star Number']
+    elif event_type == 'meridian_flip':
+        headers = ['Start Time', 'End Time', 'Details', 'Event']
+    elif event_type == 'auto_center':
+        headers = ['Start Time', 'End Time', 'Details', 'Auto-Center Number']
+    elif event_type == 'mount_slew':
+        headers = ['Timestamp', 'RA', 'DEC']
+    elif event_type == 'wait':
+        headers = ['Timestamp', 'Wait Message']
+    elif event_type == 'logging':
+        headers = ['Timestamp', 'Event Type']
+    else:
+        headers = ['Timestamp', 'Event Type', 'Details']
 
-    def main():
-        # Ensure the log directory exists
-        if not os.path.isdir(LOG_DIRECTORY):
-            print(f"Error: The log directory '{LOG_DIRECTORY}' does not exist.")
-            return
+    try:
+        with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=headers)
+            writer.writeheader()
+            for entry in data:
+                # Remove empty keys to avoid writing unnecessary columns
+                cleaned_entry = {k: v for k, v in entry.items() if v}
+                writer.writerow(cleaned_entry)
+        print(f"{event_type.capitalize()} events have been written to {output_file}")
+    except Exception as e:
+        print(f"An error occurred while writing {event_type} events to CSV: {e}")
 
-        # Find all relevant log files
-        log_files = find_log_files(LOG_DIRECTORY, AUTORUN_LOG_PREFIX)
+def main():
+    # Ensure the log directory exists
+    if not os.path.isdir(DIRECTORY):
+        print(f"Error: The log directory '{DIRECTORY}' does not exist.")
+        return
 
-        if not log_files:
-            print(f"No log files found with prefix '{AUTORUN_LOG_PREFIX}' in directory '{LOG_DIRECTORY}'.")
-            return
+    # Find all relevant log files
+    log_files = find_log_files(DIRECTORY, AUTORUN_LOG_PREFIX)
 
-        # Parse each log file
-        for log_file in log_files:
-            print(f"Parsing log file: {log_file}")
-            parse_log_file(log_file)
+    if not log_files:
+        print(f"No log files found with prefix '{AUTORUN_LOG_PREFIX}' in directory '{DIRECTORY}'.")
+        return
 
-        # Write each event type to its respective CSV
-        for event_type, data in EVENT_DATA.items():
-            write_csv(event_type, data)
+    # Parse each log file
+    for log_file in log_files:
+        print(f"Parsing log file: {log_file}")
+        parse_log_file(log_file)
 
-    if __name__ == "__main__":
-        main()
+    # Write each event type to its respective CSV
+    for event_type, data in EVENT_DATA.items():
+        write_csv(event_type, data)
+
+if __name__ == "__main__":
+    main()

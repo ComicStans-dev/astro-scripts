@@ -4,6 +4,7 @@ import glob
 import math
 import numpy as np
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 
 from astropy.io import fits
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
@@ -17,19 +18,37 @@ except ImportError:
     import pytz
     local_zone = pytz.timezone("America/Los_Angeles")
 
+# Load environment variables from .env file
+load_dotenv()
 
 ###################################################
 # USER SETTINGS
 ###################################################
 # Define the directory containing FITS files
-fits_dir = r"G:\My Drive\Dane's Files\Photography\Astrophotography\DSOs\IC1805\02-28-2025\\"
+DIRECTORY = os.getenv("DIRECTORY")
+if not DIRECTORY:
+    raise ValueError("DIRECTORY not found in .env file or environment variables.")
 
-# Observer's approximate location in Beaverton, OR
-observer_location = EarthLocation(
-    lat=45.5145 * u.deg,
-    lon=-122.848 * u.deg,
-    height=60 * u.m
-)
+# Observer's approximate location is now loaded from the .env file.
+# Ensure your .env file contains lines like:
+# OBSERVER_LAT="##.####"     # Latitude in decimal degrees (North positive)
+# OBSERVER_LON="##.###"    # Longitude in decimal degrees (East positive)
+# OBSERVER_HEIGHT="##"       # Height above reference ellipsoid (approx. AMSL) in meters
+observer_lat = os.getenv("OBSERVER_LAT")
+observer_lon = os.getenv("OBSERVER_LON")
+observer_height = os.getenv("OBSERVER_HEIGHT")
+
+if not all([observer_lat, observer_lon, observer_height]):
+    raise ValueError("Observer location (LAT, LON, HEIGHT) not found in .env file or environment variables.")
+
+try:
+    observer_location = EarthLocation(
+        lat=float(observer_lat) * u.deg,
+        lon=float(observer_lon) * u.deg,
+        height=float(observer_height) * u.m
+    )
+except ValueError as e:
+    raise ValueError(f"Error converting observer location from .env to numbers: {e}")
 
 def parse_local_time_from_filename(fname):
     """
@@ -91,8 +110,8 @@ def get_image_stats(fits_hdul):
 
 def main():
     # Recursively search for FITS files in the directory and subdirectories.
-    fits_files = glob.glob(os.path.join(fits_dir, '**', '*.fits'), recursive=True)
-    fits_files += glob.glob(os.path.join(fits_dir, '**', '*.fit'), recursive=True)
+    fits_files = glob.glob(os.path.join(DIRECTORY, '**', '*.fits'), recursive=True)
+    fits_files += glob.glob(os.path.join(DIRECTORY, '**', '*.fit'), recursive=True)
     fits_files.sort()
 
     # Determine the imaging date from the first FITS file (if available)
@@ -103,14 +122,14 @@ def main():
             date_str = local_dt.strftime("%m-%d-%Y")
         else:
             # Fall back to using the folder name if parsing fails
-            date_str = os.path.basename(os.path.normpath(fits_dir))
+            date_str = os.path.basename(os.path.normpath(DIRECTORY))
     else:
         # If no FITS files found, still try to use the folder name
-        date_str = os.path.basename(os.path.normpath(fits_dir))
+        date_str = os.path.basename(os.path.normpath(DIRECTORY))
 
     # Generate CSV filename dynamically with the imaging date at the beginning
     csv_filename = f"altaz_stats_{date_str}.csv"
-    output_csv_path = os.path.join(fits_dir, csv_filename)
+    output_csv_path = os.path.join(DIRECTORY, csv_filename)
 
     # Debugging output (optional, can be removed)
     print(f"CSV will be saved at: {output_csv_path}")
