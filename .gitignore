@@ -139,6 +139,7 @@ cython_debug/
 
 # Output directories / files
 plots/
+output/
 *.csv
 *.png
 *.jpg

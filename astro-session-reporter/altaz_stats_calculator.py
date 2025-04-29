@@ -5,6 +5,7 @@ import math
 import numpy as np
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from utils.paths import RAW_DIR, out_path
 
 from astropy.io import fits
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
@@ -24,10 +25,9 @@ load_dotenv()
 ###################################################
 # USER SETTINGS
 ###################################################
-# Define the directory containing FITS files
-DIRECTORY = os.getenv("DIRECTORY")
-if not DIRECTORY:
-    raise ValueError("DIRECTORY not found in .env file or environment variables.")
+# The raw data directory is now read once, centrally, from utils.paths
+if not RAW_DIR:
+    raise ValueError("RAW_DIR (or legacy DIRECTORY) not set in environment variables or .env file.")
 
 # Observer's approximate location is now loaded from the .env file.
 # Ensure your .env file contains lines like:
@@ -110,8 +110,8 @@ def get_image_stats(fits_hdul):
 
 def main():
     # Recursively search for FITS files in the directory and subdirectories.
-    fits_files = glob.glob(os.path.join(DIRECTORY, '**', '*.fits'), recursive=True)
-    fits_files += glob.glob(os.path.join(DIRECTORY, '**', '*.fit'), recursive=True)
+    fits_files = glob.glob(os.path.join(RAW_DIR, '**', '*.fits'), recursive=True)
+    fits_files += glob.glob(os.path.join(RAW_DIR, '**', '*.fit'), recursive=True)
     fits_files.sort()
 
     # Determine the imaging date from the first FITS file (if available)
@@ -122,17 +122,17 @@ def main():
             date_str = local_dt.strftime("%m-%d-%Y")
         else:
             # Fall back to using the folder name if parsing fails
-            date_str = os.path.basename(os.path.normpath(DIRECTORY))
+            date_str = os.path.basename(os.path.normpath(RAW_DIR))
     else:
         # If no FITS files found, still try to use the folder name
-        date_str = os.path.basename(os.path.normpath(DIRECTORY))
+        date_str = os.path.basename(os.path.normpath(RAW_DIR))
 
     # Generate CSV filename dynamically with the imaging date at the beginning
     csv_filename = f"altaz_stats_{date_str}.csv"
-    output_csv_path = os.path.join(DIRECTORY, csv_filename)
+    output_csv_path = out_path(csv_filename)
 
-    # Debugging output (optional, can be removed)
-    print(f"CSV will be saved at: {output_csv_path}")
+    # Informative print
+    print(f"[altaz] CSV will be saved at: {output_csv_path}")
 
     with open(output_csv_path, "w", encoding="utf-8") as csv_out:
         csv_out.write("filename,local_time,alt_deg,az_deg,mean_pix,std_pix\n")

@@ -2,11 +2,15 @@ import re
 import os
 import csv
 
+# Path helpers
+from utils.paths import RAW_DIR, out_path
+
 # Define constants
 AUTORUN_LOG_PREFIX = "Autorun_Log"  # Prefix for autorun log files
-DIRECTORY = os.getenv("DIRECTORY")  
-if not DIRECTORY:
-    raise ValueError("DIRECTORY not found in .env file or environment variables.")
+
+# Ensure raw dir
+if not RAW_DIR:
+    raise ValueError("RAW_DIR (or legacy DIRECTORY) not set in environment variables or .env file.")
 
 # Define output CSV filenames
 OUTPUT_CSV_FILES = {
@@ -412,7 +416,7 @@ def write_csv(event_type, data):
         return  # Skip if no data to write
 
     # Define the output file path
-    output_file = os.path.join(DIRECTORY, OUTPUT_CSV_FILES[event_type])
+    output_file = out_path(OUTPUT_CSV_FILES[event_type])
 
     # Define the CSV headers based on event type
     headers = []
@@ -457,15 +461,15 @@ def write_csv(event_type, data):
 
 def main():
     # Ensure the log directory exists
-    if not os.path.isdir(DIRECTORY):
-        print(f"Error: The log directory '{DIRECTORY}' does not exist.")
+    if not os.path.isdir(RAW_DIR):
+        print(f"Error: The log directory '{RAW_DIR}' does not exist.")
         return
 
     # Find all relevant log files
-    log_files = find_log_files(DIRECTORY, AUTORUN_LOG_PREFIX)
+    log_files = find_log_files(RAW_DIR, AUTORUN_LOG_PREFIX)
 
     if not log_files:
-        print(f"No log files found with prefix '{AUTORUN_LOG_PREFIX}' in directory '{DIRECTORY}'.")
+        print(f"No log files found with prefix '{AUTORUN_LOG_PREFIX}' in directory '{RAW_DIR}'.")
         return
 
     # Parse each log file

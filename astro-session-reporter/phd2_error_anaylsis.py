@@ -23,7 +23,8 @@ import csv
 from datetime import datetime, timedelta
 from astropy.io import fits  # Added to read FITS headers
 
-DIRECTORY = os.getenv("DIRECTORY") 
+# Path helpers for directories
+from utils.paths import RAW_DIR, out_path
 
 # Filenames or partial prefixes for the logs:
 AUTORUN_LOG_PREFIX = "Autorun_Log"  # e.g. "Autorun_Log_2025-01-25_202645.txt"
@@ -34,6 +35,10 @@ PHD2_EXT           = ".txt"
 # Guide camera scale:
 PIXEL_SCALE_ARCSEC = 6.45  # arcsec per pixel
 PIXEL_SIZE_UM      = 3.8   # microns per pixel
+
+# Raw data directory (logs + FITS)
+if not RAW_DIR:
+    raise ValueError("RAW_DIR (or legacy DIRECTORY) not set in environment variables or .env file.")
 
 # -------------------------
 # 1) Locate the log files
@@ -288,8 +293,8 @@ def compute_overall_rms(frames):
 # -------------------------
 def main():
     # 1) Find logs
-    autorun_log_path = find_file_with_prefix(DIRECTORY, AUTORUN_LOG_PREFIX, AUTORUN_EXT)
-    phd2_log_path    = find_file_with_prefix(DIRECTORY, PHD2_LOG_PREFIX, PHD2_EXT)
+    autorun_log_path = find_file_with_prefix(RAW_DIR, AUTORUN_LOG_PREFIX, AUTORUN_EXT)
+    phd2_log_path    = find_file_with_prefix(RAW_DIR, PHD2_LOG_PREFIX, PHD2_EXT)
 
     if not autorun_log_path or not phd2_log_path:
         print("Error: Could not find the required logs.")
@@ -362,7 +367,7 @@ def main():
 
     # 6) Write CSV to the same folder
     csv_name = f"phd2_analysis_{datetime.now():%Y%m%d-%H%M%S}.csv"
-    csv_path = os.path.join(DIRECTORY, csv_name)
+    csv_path = out_path(csv_name)
     print(f"\nSaving results to CSV: {csv_path}")
 
     with open(csv_path, "w", newline="", encoding="utf-8") as out_file:
