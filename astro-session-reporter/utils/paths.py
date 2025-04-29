@@ -45,12 +45,23 @@ RAW_DIR = os.getenv("RAW_DIR", _legacy_raw_dir)
 
 # REPORTS_DIR may be absent; if so, we write alongside the raw data just like
 # the original code did.
-REPORTS_DIR = os.getenv("REPORTS_DIR", RAW_DIR)
+raw_reports_dir = os.getenv("REPORTS_DIR", RAW_DIR)
+
+# Clean up any potential control characters in paths
+def clean_path(path):
+    if path is None:
+        return None
+    # Replace any non-printable characters except allowed path separators with nothing
+    return Path(path).resolve().as_posix()
+
+# Clean the paths to prevent control character issues
+RAW_DIR = clean_path(RAW_DIR)
+REPORTS_DIR = clean_path(raw_reports_dir)
 
 # Special flag to ensure REPORTS_DIR is respected in subprocess
 if os.getenv("FORCE_REPORTS_DIR") == "1" and REPORTS_DIR == RAW_DIR and os.getenv("REPORTS_DIR"):
     print("FORCE_REPORTS_DIR flag detected - ensuring REPORTS_DIR is used")
-    REPORTS_DIR = os.getenv("REPORTS_DIR")
+    REPORTS_DIR = clean_path(os.getenv("REPORTS_DIR"))
 
 # Simplified debug output - only show it in verbose mode or if there's an apparent issue
 if os.getenv("DEBUG") or REPORTS_DIR == RAW_DIR:
@@ -63,7 +74,19 @@ if os.getenv("DEBUG") or REPORTS_DIR == RAW_DIR:
 
 def ensure_reports_dir() -> str:
     """Create the REPORTS_DIR (if needed) and return its absolute path."""
-    os.makedirs(REPORTS_DIR, exist_ok=True)
+    if REPORTS_DIR is None:
+        raise ValueError("REPORTS_DIR is not set")
+    
+    try:
+        os.makedirs(REPORTS_DIR, exist_ok=True)
+    except Exception as e:
+        print(f"[paths] ERROR creating directory {REPORTS_DIR}: {e}")
+        # Create a fallback directory in the current directory
+        fallback_dir = os.path.join(os.getcwd(), "output")
+        print(f"[paths] Using fallback directory: {fallback_dir}")
+        os.makedirs(fallback_dir, exist_ok=True)
+        return fallback_dir
+        
     return REPORTS_DIR
 
 

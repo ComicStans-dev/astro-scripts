@@ -34,6 +34,13 @@ This project includes the following main analysis scripts:
         *   Wait states
     *   Categorizes these events and saves the data into multiple separate CSV files (one for each major event type, e.g., `autofocus_events.csv`, `guide_events.csv`).
 
+4. **`run_all.py`**:
+    * Runs all the analysis scripts in sequence in a clean environment
+    * Takes configuration from environment variables or .env file
+    * Features a rich, colorful terminal UI that shows progress and status
+    * Handles errors gracefully, continuing to the next script if one fails
+    * Can be run with `--debug` flag for additional diagnostic information
+
 ## Project Structure 📁
 
 ```
@@ -41,42 +48,69 @@ astro-session-reporter/
 ├── phd2_error_anaylsis.py     # Guiding performance analysis
 ├── altaz_stats_calculator.py  # Altitude/Azimuth calculation and basic image stats
 ├── autofocus_analysis.py      # Comprehensive session event log parser
-├── README.md                  # This file
-└── (output files like *.csv)    # Generated CSV reports
+├── run_all.py                 # Main script runner with rich terminal UI
+├── utils/                     # Utility modules 
+│   └── paths.py               # Path resolution and environment handling
+└── README.md                  # This file
+└── output/                    # Generated CSV reports and output files
 ```
 
-*(Note: This project might depend on shared modules previously located in an `astro_modules` directory. Ensure necessary shared code is accessible.)*
+## Configuration ⚙️
+
+You can configure the analyzer using environment variables or a `.env` file in the project root. The following variables are available:
+
+```
+# Directory containing FITS files and log files (REQUIRED)
+RAW_DIR="/path/to/your/imaging/session/data"
+
+# Directory for output files (optional, defaults to RAW_DIR)
+REPORTS_DIR="/path/to/output/directory"
+
+# Observer Location (for altitude/azimuth calculations)
+OBSERVER_LAT=45.5145       # Latitude in decimal degrees
+OBSERVER_LON=-122.848      # Longitude in decimal degrees 
+OBSERVER_HEIGHT=60         # Height in meters
+```
 
 ## Setup and Usage 🚀
 
 1.  **Prerequisites:**
     *   Python 3.x
-    *   Required libraries: `astropy`, `numpy` (and potentially `pytz` or `zoneinfo` depending on your Python version for timezone handling). It's highly recommended to use a virtual environment.
+    *   Required libraries: `astropy`, `numpy`, `python-dotenv`, `rich`
     ```bash
     # Assuming you are in the astro-scripts root directory
     python -m venv .venv
     source .venv/bin/activate # or .\.venv\Scripts\activate on Windows
-    pip install astropy numpy pytz # zoneinfo is built-in for Python >= 3.9
-    # Consider creating a requirements.txt: pip freeze > requirements.txt
+    pip install astropy numpy python-dotenv rich pytz # zoneinfo is built-in for Python >= 3.9
     ```
+
 2.  **Configuration:**
-    *   Each script (`phd2_error_anaylsis.py`, `altaz_stats_calculator.py`, `autofocus_analysis.py`) contains user-configurable constants near the top, primarily `LOG_DIR` or `fits_dir`. **You must edit these paths** in each script to point to the directory containing the relevant logs and FITS files for the session you want to analyze.
-    *   `phd2_error_anaylsis.py` also requires setting `PIXEL_SCALE_ARCSEC` and `PIXEL_SIZE_UM` for your guide camera setup.
-    *   `altaz_stats_calculator.py` requires setting the `observer_location` (Latitude, Longitude, Height).
-    *   Review the filename prefixes (`AUTORUN_LOG_PREFIX`, `PHD2_LOG_PREFIX`) and regex patterns within the scripts to ensure they match the format of your log files.
+    *   Create a `.env` file in the project root or set environment variables as shown in the Configuration section
+    *   Each script also contains user-configurable constants near the top that can be modified if needed
+
 3.  **Run Analysis:**
-    *   Navigate to the `astro-scripts` root directory in your terminal (or ensure the `astro-session-reporter` directory is in your Python path).
-    *   Execute the desired script(s):
+    *   Navigate to the project root directory in your terminal
+    *   To run all analyzers at once:
+        ```bash
+        python astro-session-reporter/run_all.py
+        ```
+    *   To run with debug information:
+        ```bash 
+        python astro-session-reporter/run_all.py --debug
+        ```
+    *   To run individual scripts:
         ```bash
         python astro-session-reporter/phd2_error_anaylsis.py
         python astro-session-reporter/altaz_stats_calculator.py
         python astro-session-reporter/autofocus_analysis.py
         ```
+
 4.  **Output:**
     *   Check the terminal for summary information and processing logs.
-    *   Find the generated CSV report files within the session directory specified in the scripts' configuration.
+    *   Find the generated CSV report files in the directory specified by `REPORTS_DIR` or in the session directory.
 
 ## Notes 📌
 
-*   These scripts rely on specific formats and content within the log files and FITS headers. Adjustments to the parsing logic (especially regular expressions) may be needed depending on your specific acquisition software versions and settings.
-*   The `altaz_stats_calculator.py` assumes filenames contain a timestamp in `YYYYMMDD-HHMMSS` format and uses the `America/Los_Angeles` timezone for calculations. Modify the `parse_local_time_from_filename` function and `local_zone` definition if your setup differs. 
+*   These scripts rely on specific formats and content within the log files and FITS headers. Adjustments to the parsing logic may be needed depending on your specific acquisition software versions and settings.
+*   The `altaz_stats_calculator.py` assumes filenames contain a timestamp in `YYYYMMDD-HHMMSS` format and uses the timezone specified in the configuration. Modify if your setup differs.
+*   The scripts are designed to be run from the project root directory, not from within the `astro-session-reporter` directory. 
