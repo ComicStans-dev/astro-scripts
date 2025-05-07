@@ -37,7 +37,8 @@ env_path = os.path.join(parent_dir, ".env")
 env_loaded = load_dotenv(dotenv_path=env_path)
 
 if args.debug:
-    console.print(f"Loading .env from: [cyan]{env_path}[/] (success: [{'green' if env_loaded else 'red'}{env_loaded}[/])")
+    color = 'green' if env_loaded else 'red'
+    console.print(f"Loading .env from: [cyan]{env_path}[/] (success: [{color}]{env_loaded}[/{color}])")
 
 # Validate required environment variables
 raw_dir = os.getenv("RAW_DIR") or os.getenv("DIRECTORY")
@@ -61,6 +62,7 @@ scripts = [
     "altaz_stats_calculator.py",
     "autofocus_analysis.py",
     "phd2_error_anaylsis.py",
+    os.path.join("final_output", "generate_unified_csv.py"),
 ]
 
 # Create a table to track script execution status

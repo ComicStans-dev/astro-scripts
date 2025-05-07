@@ -43,15 +43,16 @@ if not RAW_DIR:
 # -------------------------
 # 1) Locate the log files
 # -------------------------
-def find_file_with_prefix(dir_path, prefix, extension):
+def find_all_files_with_prefix(dir_path, prefix, extension):
     """
-    Search 'dir_path' for a file that starts with 'prefix' and ends with 'extension'.
-    Returns the first match or None if not found.
+    Search 'dir_path' for all files that start with 'prefix' and end with 'extension'.
+    Returns a sorted list of matching file paths.
     """
-    for fname in os.listdir(dir_path):
-        if fname.startswith(prefix) and fname.endswith(extension):
-            return os.path.join(dir_path, fname)
-    return None
+    matches = [fname for fname in os.listdir(dir_path) if fname.startswith(prefix) and fname.endswith(extension)]
+    if not matches:
+        return []
+    matches.sort()
+    return [os.path.join(dir_path, m) for m in matches]
 
 # -------------------------
 # 2) Parse the Autorun Log
@@ -90,7 +91,7 @@ def parse_autorun_log(log_path):
     )
     # Pattern for .fits lines
     # e.g. "Light_LDN 1625_300.0s_Bin1_gain252_20250125-203409_-20.0C_0001.fits"
-    fits_pat = re.compile(r'^(Light_\S+\.fits)$', re.IGNORECASE)
+    fits_pat = re.compile(r'^(Light_\S+\.fit[s]?)$', re.IGNORECASE)
 
     last_image_dict = None
 
@@ -135,6 +136,20 @@ def parse_autorun_log(log_path):
                             last_image_dict["end_dt"] = obs_dt + timedelta(seconds=last_image_dict["exposure_s"])
                     except Exception as e:
                         print(f"Error reading FITS header from {fits_file_path}: {e}")
+
+    # Fallback: if the autorun log never listed FITS names, map exposures to the directory's FITS files
+    log_dir = os.path.dirname(log_path)
+    try:
+        fits_files = sorted(
+            fname for fname in os.listdir(log_dir)
+            if fname.lower().endswith(('.fit', '.fits'))
+        )
+        for img_dict, fname in zip(images, fits_files):
+            if img_dict.get("filename") is None:
+                img_dict["filename"] = fname
+    except Exception:
+        # If directory listing fails, silently continue
+        pass
     return images
 
 # -------------------------
@@ -293,32 +308,70 @@ def compute_overall_rms(frames):
 # -------------------------
 def main():
     # 1) Find logs
-    autorun_log_path = find_file_with_prefix(RAW_DIR, AUTORUN_LOG_PREFIX, AUTORUN_EXT)
-    phd2_log_path    = find_file_with_prefix(RAW_DIR, PHD2_LOG_PREFIX, PHD2_EXT)
+    autorun_log_files = find_all_files_with_prefix(RAW_DIR, AUTORUN_LOG_PREFIX, AUTORUN_EXT)
+    phd2_log_files    = find_all_files_with_prefix(RAW_DIR, PHD2_LOG_PREFIX, PHD2_EXT)
 
-    if not autorun_log_path or not phd2_log_path:
-        print("Error: Could not find the required logs.")
-        print("Autorun:", autorun_log_path)
-        print("PHD2:", phd2_log_path)
+    if not autorun_log_files:
+        print("Error: Could not find any Autorun logs.")
+        return
+    if not phd2_log_files:
+        print("Error: Could not find any PHD2 logs.")
         return
 
+    # Assuming the latest autorun log is the one to use if multiple exist
+    autorun_log_path = autorun_log_files[-1]
     print(f"Using Autorun Log: {autorun_log_path}")
-    print(f"Using PHD2 Log:    {phd2_log_path}\n")
+    print(f"Found PHD2 Logs: {[os.path.basename(p) for p in phd2_log_files]}\n")
 
     # 2) Parse logs
     images = parse_autorun_log(autorun_log_path)
-    frames, star_lost_times = parse_phd2_log(phd2_log_path)
+    
+    all_frames = []
+    all_star_lost_times = []
+
+    for phd2_log_path_item in phd2_log_files:
+        print(f"Parsing PHD2 Log: {phd2_log_path_item}")
+        frames_segment, star_lost_segment = parse_phd2_log(phd2_log_path_item)
+        all_frames.extend(frames_segment)
+        all_star_lost_times.extend(star_lost_segment)
+        if frames_segment: # Log if this segment contributed frames
+            print(f"  -> Found {len(frames_segment)} frames, time range: {frames_segment[0]['abs_time']} to {frames_segment[-1]['abs_time']}")
+        else:
+            print(f"  -> No frames found in this segment.")
+
+    # Sort all collected frames by absolute time
+    all_frames.sort(key=lambda f: f['abs_time'])
+    # Star lost times might not need sorting if they are just checked for existence in a range,
+    # but sorting and removing duplicates won't hurt if there's overlap.
+    all_star_lost_times = sorted(list(set(all_star_lost_times)))
+
+    # Debug: print all FITS files found in RAW_DIR
+    fits_files = [f for f in os.listdir(RAW_DIR) if f.lower().endswith(('.fit', '.fits'))]
+    print(f"[DEBUG] FITS files in RAW_DIR: {fits_files}")
+    print(f"[DEBUG] Autorun log image filenames: {[img['filename'] for img in images]}")
+
+    # Debug: print all image start times
+    for img in images:
+        print(f"[DEBUG] Image {img['filename']} start: {img['start_dt']}")
+
+    # Debug: print all guide frame times
+    if all_frames:
+        print(f"[DEBUG] Total combined guide frames: {len(all_frames)}")
+        print(f"[DEBUG] First 5 combined guide frame times: {[fr['abs_time'] for fr in all_frames[:5]]}")
+        print(f"[DEBUG] Last 5 combined guide frame times: {[fr['abs_time'] for fr in all_frames[-5:]]}")
+    else:
+        print("[DEBUG] No guide frames parsed from any PHD2 log.")
 
     if not images:
         print("No image exposures found in Autorun log.")
-    if not frames:
+    if not all_frames:
         print("No guide frames found in PHD2 log.")
 
     # 3) Compute per-image RMS + star-lost
     results = []
     for img in images:
-        metrics   = compute_rms_for_image(img, frames)
-        lost_cnt  = count_star_lost_for_image(img, star_lost_times)
+        metrics   = compute_rms_for_image(img, all_frames)
+        lost_cnt  = count_star_lost_for_image(img, all_star_lost_times)
 
         row = {
             "image_num":       img["image_num"],
@@ -337,7 +390,7 @@ def main():
         results.append(row)
 
     # 4) Compute overall RMS across all frames
-    overall = compute_overall_rms(frames)
+    overall = compute_overall_rms(all_frames)
 
     # 5) Print the results as a table
     print("Per-Image Results:")

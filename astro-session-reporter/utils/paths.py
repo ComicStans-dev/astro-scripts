@@ -47,26 +47,27 @@ RAW_DIR = os.getenv("RAW_DIR", _legacy_raw_dir)
 # the original code did.
 raw_reports_dir = os.getenv("REPORTS_DIR", RAW_DIR)
 
-# Clean up any potential control characters in paths
-def clean_path(path):
-    if path is None:
+# Robust path normalization using pathlib
+def normalize_path(p):
+    if not p:
         return None
-    # Replace any non-printable characters except allowed path separators with nothing
-    return Path(path).resolve().as_posix()
+    try:
+        resolved = Path(p).expanduser().resolve(strict=False)
+        return str(resolved)
+    except Exception as e:
+        print(f"[paths] WARNING: Could not normalize path '{p}': {e}")
+        return os.path.abspath(p)
 
-# Clean the paths to prevent control character issues
-RAW_DIR = clean_path(RAW_DIR)
-REPORTS_DIR = clean_path(raw_reports_dir)
+RAW_DIR_RAW = RAW_DIR
+REPORTS_DIR_RAW = raw_reports_dir
+RAW_DIR = normalize_path(RAW_DIR_RAW)
+REPORTS_DIR = normalize_path(REPORTS_DIR_RAW)
 
-# Special flag to ensure REPORTS_DIR is respected in subprocess
-if os.getenv("FORCE_REPORTS_DIR") == "1" and REPORTS_DIR == RAW_DIR and os.getenv("REPORTS_DIR"):
-    print("FORCE_REPORTS_DIR flag detected - ensuring REPORTS_DIR is used")
-    REPORTS_DIR = clean_path(os.getenv("REPORTS_DIR"))
-
-# Simplified debug output - only show it in verbose mode or if there's an apparent issue
-if os.getenv("DEBUG") or REPORTS_DIR == RAW_DIR:
-    print(f"[paths] RAW_DIR: {RAW_DIR}")
-    print(f"[paths] REPORTS_DIR: {REPORTS_DIR}")
+if os.getenv("DEBUG"):
+    print(f"[paths] RAW_DIR (raw): {RAW_DIR_RAW}")
+    print(f"[paths] RAW_DIR (normalized): {RAW_DIR}")
+    print(f"[paths] REPORTS_DIR (raw): {REPORTS_DIR_RAW}")
+    print(f"[paths] REPORTS_DIR (normalized): {REPORTS_DIR}")
 
 # -----------------------------------------------------------------------------
 # Public helpers

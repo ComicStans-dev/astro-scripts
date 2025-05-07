@@ -449,7 +449,8 @@ def write_csv(event_type, data):
 
     try:
         with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=headers)
+            # Use extrasaction to ignore any fields not in headers
+            writer = csv.DictWriter(csvfile, fieldnames=headers, extrasaction='ignore')
             writer.writeheader()
             for entry in data:
                 # Remove empty keys to avoid writing unnecessary columns
