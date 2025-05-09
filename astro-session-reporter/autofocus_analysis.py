@@ -1,6 +1,7 @@
 import re
 import os
 import csv
+import pandas as pd # Added for DataFrames
 
 # Path helpers
 from utils.paths import RAW_DIR, out_path
@@ -87,31 +88,44 @@ EVENT_DATA = {
     'logging': []
 }
 
-def parse_log_file(file_path):
+def parse_log_file_to_data_lists(file_path):
     """
-    Parses a single log file to extract various events.
+    Parses a single log file to extract various events into lists of dicts.
+    This is an internal helper for generate_event_dataframes.
 
     Args:
         file_path (str): The path to the log file.
+    Returns:
+        dict: A dictionary where keys are event types and values are lists of event data (dicts).
     """
+    # Initialize local data containers for this parse run
+    # Use a copy of OUTPUT_CSV_FILES keys to define the structure for event data lists
+    local_event_data_keys = list(OUTPUT_CSV_FILES.keys()) 
+    local_event_data = {key: [] for key in local_event_data_keys}
+
     try:
-        with open(file_path, 'r') as file:
+        with open(file_path, 'r', encoding='utf-8') as file: # Added encoding
             for line in file:
                 # Autofocus Begin
                 match = REGEX_PATTERNS['autofocus_begin'].search(line)
                 if match:
-                    EVENT_DATA['autofocus'].append({
-                        'Start Time': match.group(1),
-                        'Details':    match.group(2)
+                    local_event_data['autofocus'].append({
+                        'Timestamp': match.group(1), # Changed to Timestamp for consistency
+                        'Event_Type': 'Begin',      # Changed to Event_Type
+                        'Details':    match.group(2),
+                        'Final_Focus_Position': pd.NA, # Use pd.NA for missing
+                        'Status': 'N/A' # Status captured by Event_Type
                     })
                     continue
 
                 # Autofocus End Success
                 match = REGEX_PATTERNS['autofocus_end_success'].search(line)
                 if match:
-                    EVENT_DATA['autofocus'].append({
-                        'End Time':             match.group(1),
-                        'Final Focus Position': match.group(2),
+                    local_event_data['autofocus'].append({
+                        'Timestamp': match.group(1),
+                        'Event_Type': 'End',
+                        'Details':    'Autofocus Succeeded',
+                        'Final_Focus_Position': match.group(2),
                         'Status':               'Success'
                     })
                     continue
@@ -119,9 +133,11 @@ def parse_log_file(file_path):
                 # Autofocus End Failure
                 match = REGEX_PATTERNS['autofocus_end_failure'].search(line)
                 if match:
-                    EVENT_DATA['autofocus'].append({
-                        'End Time':             match.group(1),
-                        'Final Focus Position': 'Failed',
+                    local_event_data['autofocus'].append({
+                        'Timestamp': match.group(1),
+                        'Event_Type': 'End',
+                        'Details':    'Autofocus Failed',
+                        'Final_Focus_Position': pd.NA,
                         'Status':               'Failure'
                     })
                     continue
@@ -129,8 +145,9 @@ def parse_log_file(file_path):
                 # Autorun Begin
                 match = REGEX_PATTERNS['autorun_begin'].search(line)
                 if match:
-                    EVENT_DATA['autorun'].append({
-                        'Start Time': match.group(1),
+                    local_event_data['autorun'].append({
+                        'Timestamp': match.group(1),
+                        'Event_Type': 'Begin',
                         'Details':    match.group(2)
                     })
                     continue
@@ -138,254 +155,191 @@ def parse_log_file(file_path):
                 # Autorun End
                 match = REGEX_PATTERNS['autorun_end'].search(line)
                 if match:
-                    EVENT_DATA['autorun'].append({
-                        'End Time': match.group(1),
+                    local_event_data['autorun'].append({
+                        'Timestamp': match.group(1),
+                        'Event_Type': 'End',
                         'Details':  match.group(2)
                     })
                     continue
-
-                # Target Coordinates
+                
                 match = REGEX_PATTERNS['target_coordinates'].search(line)
                 if match:
-                    EVENT_DATA['target_coordinates'].append({
+                    # Ensure 'target_coordinates' key exists if it was missed in OUTPUT_CSV_FILES based init
+                    if 'target_coordinates' not in local_event_data: 
+                        local_event_data['target_coordinates'] = []
+                    local_event_data['target_coordinates'].append({
                         'Timestamp': match.group(1),
                         'RA':        match.group(2),
                         'DEC':       match.group(3)
                     })
                     continue
-
+                
                 # Tracking Start
                 match = REGEX_PATTERNS['tracking_start'].search(line)
                 if match:
-                    EVENT_DATA['tracking'].append({
+                    local_event_data['tracking'].append({
                         'Timestamp':  match.group(1),
-                        'Event Type': 'Start'
+                        'Event_Type': 'Start'
                     })
                     continue
 
                 # Tracking Stop
                 match = REGEX_PATTERNS['tracking_stop'].search(line)
                 if match:
-                    EVENT_DATA['tracking'].append({
+                    local_event_data['tracking'].append({
                         'Timestamp':  match.group(1),
-                        'Event Type': 'Stop'
+                        'Event_Type': 'Stop'
                     })
                     continue
 
                 # Guide Events
-                # Guide Stop Guiding
-                match = REGEX_PATTERNS['guide_stop_guiding'].search(line)
-                if match:
-                    EVENT_DATA['guide'].append({
-                        'Timestamp':  match.group(1),
-                        'Event Type': 'Stop Guiding',
-                        'Details':    ''
-                    })
-                    continue
+                for guide_event_key, guide_event_name in [
+                    ('guide_stop_guiding', 'Stop Guiding'),
+                    ('guide_start_guiding', 'Start Guiding'),
+                    ('guide_star_lost', 'Guide Star Lost'),
+                    ('guide_reselect_star', 'ReSelect Guide Star'),
+                    ('guide_settle', 'Guide Settle'),
+                    ('guide_settle_done', 'Settle Done'),
+                    ('guide_settle_failed', 'Settle Failed'),
+                    ('guide_select_failed', 'Select Guide Star Failed')
+                ]:
+                    match = REGEX_PATTERNS[guide_event_key].search(line)
+                    if match:
+                        details = match.group(2) if len(match.groups()) > 1 else ''
+                        if guide_event_key == 'guide_select_failed': details = 'no star found' # specific detail
+                        local_event_data['guide'].append({
+                            'Timestamp':  match.group(1),
+                            'Event_Type': guide_event_name,
+                            'Details':    details
+                        })
+                        break # Found a guide event, move to next line
+                if match: continue # If any guide event matched and broke inner loop
 
-                # Guide Start Guiding
-                match = REGEX_PATTERNS['guide_start_guiding'].search(line)
-                if match:
-                    EVENT_DATA['guide'].append({
-                        'Timestamp':  match.group(1),
-                        'Event Type': 'Start Guiding',
-                        'Details':    ''
-                    })
-                    continue
-
-                # Guide Star Lost
-                match = REGEX_PATTERNS['guide_star_lost'].search(line)
-                if match:
-                    EVENT_DATA['guide'].append({
-                        'Timestamp':  match.group(1),
-                        'Event Type': 'Guide Star Lost',
-                        'Details':    ''
-                    })
-                    continue
-
-                # Guide ReSelect Guide Star
-                match = REGEX_PATTERNS['guide_reselect_star'].search(line)
-                if match:
-                    EVENT_DATA['guide'].append({
-                        'Timestamp':  match.group(1),
-                        'Event Type': 'ReSelect Guide Star',
-                        'Details':    ''
-                    })
-                    continue
-
-                # Guide Settle
-                match = REGEX_PATTERNS['guide_settle'].search(line)
-                if match:
-                    EVENT_DATA['guide'].append({
-                        'Timestamp':  match.group(1),
-                        'Event Type': 'Guide Settle',
-                        'Details':    ''
-                    })
-                    continue
-
-                # Guide Settle Done
-                match = REGEX_PATTERNS['guide_settle_done'].search(line)
-                if match:
-                    EVENT_DATA['guide'].append({
-                        'Timestamp':  match.group(1),
-                        'Event Type': 'Settle Done',
-                        'Details':    ''
-                    })
-                    continue
-
-                # Guide Settle Failed
-                match = REGEX_PATTERNS['guide_settle_failed'].search(line)
-                if match:
-                    EVENT_DATA['guide'].append({
-                        'Timestamp':  match.group(1),
-                        'Event Type': 'Settle Failed',
-                        'Details':    ''
-                    })
-                    continue
-
-                # Guide Select Failed
-                match = REGEX_PATTERNS['guide_select_failed'].search(line)
-                if match:
-                    EVENT_DATA['guide'].append({
-                        'Timestamp':  match.group(1),
-                        'Event Type': 'Select Guide Star Failed',
-                        'Details':    'No star found'
-                    })
-                    continue
-
-                # Exposure Events
+                # Exposure
                 match = REGEX_PATTERNS['exposure'].search(line)
                 if match:
-                    EVENT_DATA['exposure'].append({
-                        'Timestamp':         match.group(1),
-                        'Exposure Time (s)': match.group(2),
-                        'Image Number':      match.group(3)
+                    local_event_data['exposure'].append({
+                        'Timestamp':   match.group(1),
+                        'Exposure_s': match.group(2), # Renamed for clarity
+                        'Image_Num':   match.group(3)  # Renamed for clarity
                     })
                     continue
 
                 # Plate Solve Begin
                 match = REGEX_PATTERNS['plate_solve_begin'].search(line)
                 if match:
-                    EVENT_DATA['plate_solve'].append({
-                        'Timestamp':   match.group(1),
-                        'Status':      'Begin',
-                        'RA':          '',
-                        'DEC':         '',
-                        'Angle':       '',
-                        'Star Number': ''
+                    local_event_data['plate_solve'].append({
+                        'Timestamp': match.group(1),
+                        'Event_Type': 'Begin',
+                        'RA': pd.NA, 'DEC': pd.NA, 'Angle': pd.NA, 'Star_Count': pd.NA 
                     })
                     continue
-
+                
                 # Plate Solve Success
                 match = REGEX_PATTERNS['plate_solve_success'].search(line)
                 if match:
-                    EVENT_DATA['plate_solve'].append({
-                        'Timestamp':   match.group(1),
-                        'Status':      'Succeeded',
-                        'RA':          match.group(2),
-                        'DEC':         match.group(3),
-                        'Angle':       match.group(4),
-                        'Star Number': match.group(5)
+                    local_event_data['plate_solve'].append({
+                        'Timestamp':  match.group(1),
+                        'Event_Type': 'Success',
+                        'RA':         match.group(2),
+                        'DEC':        match.group(3),
+                        'Angle':      match.group(4),
+                        'Star_Count': match.group(5)
                     })
                     continue
 
                 # Meridian Flip Begin
                 match = REGEX_PATTERNS['meridian_flip_begin'].search(line)
                 if match:
-                    EVENT_DATA['meridian_flip'].append({
-                        'Start Time': match.group(1),
-                        'Details':    match.group(2),
-                        'Event':      '' # Placeholder, might be updated by other events
+                    local_event_data['meridian_flip'].append({
+                        'Timestamp':  match.group(1),
+                        'Event_Type': 'Begin',
+                        'Details':    match.group(2)
                     })
                     continue
-
-                # Meridian Flip Start
+                
                 match = REGEX_PATTERNS['meridian_flip_start'].search(line)
                 if match:
-                    # Note: This might create a separate entry from Begin/End
-                    EVENT_DATA['meridian_flip'].append({
-                        'Timestamp':  match.group(1),
-                        'Event':      f'Meridian Flip {match.group(2)}# Start',
-                        'Start Time': '', # Not captured in this line
-                        'End Time':   '', # Not captured in this line
-                        'Details':    ''  # Not captured in this line
+                    local_event_data['meridian_flip'].append({
+                        'Timestamp': match.group(1),
+                        'Event_Type': 'Start Action',
+                        'Details': f"Flip #{match.group(2)}"
                     })
                     continue
-
-                # Meridian Flip End
+                
                 match = REGEX_PATTERNS['meridian_flip_end'].search(line)
                 if match:
-                    EVENT_DATA['meridian_flip'].append({
-                        'End Time':   match.group(1),
-                        'Details':    match.group(2),
-                        'Event':      '', # Placeholder
-                        'Start Time': ''  # Placeholder
+                    local_event_data['meridian_flip'].append({
+                        'Timestamp':  match.group(1),
+                        'Event_Type': 'End',
+                        'Details':    match.group(2)
                     })
                     continue
 
                 # Auto-Center Begin
                 match = REGEX_PATTERNS['auto_center_begin'].search(line)
                 if match:
-                    EVENT_DATA['auto_center'].append({
-                        'Start Time':         match.group(1),
-                        'Auto-Center Number': match.group(2),
-                        'End Time':           '', # Placeholder
-                        'Details':            ''  # Placeholder
+                    local_event_data['auto_center'].append({
+                        'Timestamp':  match.group(1),
+                        'Event_Type': 'Begin',
+                        'Details':    f"Auto-Center #{match.group(2)}"
                     })
                     continue
 
-                # Auto-Center End
                 match = REGEX_PATTERNS['auto_center_end'].search(line)
                 if match:
-                    EVENT_DATA['auto_center'].append({
-                        'End Time':           match.group(1),
-                        'Details':            match.group(2),
-                        'Start Time':         '', # Placeholder
-                        'Auto-Center Number': ''  # Placeholder
+                    local_event_data['auto_center'].append({
+                        'Timestamp':  match.group(1),
+                        'Event_Type': 'End',
+                        'Details':    match.group(2)
                     })
                     continue
-
-                # Mount Slew Events
+                
                 match = REGEX_PATTERNS['mount_slew'].search(line)
                 if match:
-                    EVENT_DATA['mount_slew'].append({
+                    # Ensure 'mount_slew' key exists
+                    if 'mount_slew' not in local_event_data: 
+                        local_event_data['mount_slew'] = []
+                    local_event_data['mount_slew'].append({
                         'Timestamp': match.group(1),
                         'RA':        match.group(2),
                         'DEC':       match.group(3)
                     })
                     continue
 
-                # Wait Messages
                 match = REGEX_PATTERNS['wait_message'].search(line)
                 if match:
-                    EVENT_DATA['wait'].append({
-                        'Timestamp':    match.group(1),
-                        'Wait Message': match.group(2)
+                    # Ensure 'wait' key exists
+                    if 'wait' not in local_event_data: 
+                        local_event_data['wait'] = []
+                    local_event_data['wait'].append({
+                        'Timestamp': match.group(1),
+                        'Message':   match.group(2)
                     })
                     continue
-
-                # Logging Enabled
-                match = REGEX_PATTERNS['logging_enabled'].search(line)
-                if match:
-                    EVENT_DATA['logging'].append({
-                        'Timestamp':  match.group(1),
-                        'Event Type': 'Enabled'
-                    })
-                    continue
-
-                # Logging Disabled
-                match = REGEX_PATTERNS['logging_disabled'].search(line)
-                if match:
-                    EVENT_DATA['logging'].append({
-                        'Timestamp':  match.group(1),
-                        'Event Type': 'Disabled'
-                    })
-                    continue
+                
+                # Logging Enabled / Disabled
+                for log_event_key, log_event_name in [
+                    ('logging_enabled', 'Enabled'),
+                    ('logging_disabled', 'Disabled')
+                ]:
+                    match = REGEX_PATTERNS[log_event_key].search(line)
+                    if match:
+                        # Ensure 'logging' key exists
+                        if 'logging' not in local_event_data: 
+                            local_event_data['logging'] = []
+                        local_event_data['logging'].append({
+                            'Timestamp':  match.group(1),
+                            'Event_Type': log_event_name
+                        })
+                        break 
+                if match: continue
 
     except FileNotFoundError:
-        print(f"Error: Log file not found at {file_path}")
+        print(f"[autofocus_analysis] Log file not found: {file_path}")
     except Exception as e:
-        print(f"An error occurred while parsing {file_path}: {e}")
+        print(f"[autofocus_analysis] Error parsing log file {file_path}: {e}")
+    return local_event_data
 
 def find_log_files(directory, prefix):
     """
@@ -404,83 +358,74 @@ def find_log_files(directory, prefix):
         if file.startswith(prefix) and file.endswith('.txt')  # Assuming log files have .txt extension
     ]
 
-def write_csv(event_type, data):
-    """
-    Writes event data to a CSV file.
+def write_csv_from_df(event_type_key, df, base_filename_map):
+    """Writes a DataFrame to a CSV file if it's not empty."""
+    if df.empty:
+        if os.getenv("DEBUG") == "1":
+            print(f"[autofocus_analysis] No data for {event_type_key}, CSV not written.")
+        return
 
-    Args:
-        event_type (str): The type of event.
-        data (list): The list of event dictionaries.
-    """
-    if not data:
-        return  # Skip if no data to write
+    csv_filename = base_filename_map.get(event_type_key)
+    if not csv_filename:
+        if os.getenv("DEBUG") == "1":
+            print(f"[autofocus_analysis] No CSV output filename defined for {event_type_key}")
+        return
 
-    # Define the output file path
-    output_file = out_path(OUTPUT_CSV_FILES[event_type])
-
-    # Define the CSV headers based on event type
-    headers = []
-    if event_type == 'autofocus':
-        headers = ['Start Time', 'End Time', 'Final Focus Position', 'Status']
-    elif event_type == 'autorun':
-        headers = ['Start Time', 'End Time', 'Details']
-    elif event_type == 'target_coordinates':
-        headers = ['Timestamp', 'RA', 'DEC']
-    elif event_type == 'tracking':
-        headers = ['Timestamp', 'Event Type']
-    elif event_type == 'guide':
-        headers = ['Timestamp', 'Event Type', 'Details']
-    elif event_type == 'exposure':
-        headers = ['Timestamp', 'Exposure Time (s)', 'Image Number']
-    elif event_type == 'plate_solve':
-        headers = ['Timestamp', 'Status', 'RA', 'DEC', 'Angle', 'Star Number']
-    elif event_type == 'meridian_flip':
-        headers = ['Start Time', 'End Time', 'Details', 'Event']
-    elif event_type == 'auto_center':
-        headers = ['Start Time', 'End Time', 'Details', 'Auto-Center Number']
-    elif event_type == 'mount_slew':
-        headers = ['Timestamp', 'RA', 'DEC']
-    elif event_type == 'wait':
-        headers = ['Timestamp', 'Wait Message']
-    elif event_type == 'logging':
-        headers = ['Timestamp', 'Event Type']
-    else:
-        headers = ['Timestamp', 'Event Type', 'Details']
-
+    output_file = out_path(csv_filename)
     try:
-        with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
-            # Use extrasaction to ignore any fields not in headers
-            writer = csv.DictWriter(csvfile, fieldnames=headers, extrasaction='ignore')
-            writer.writeheader()
-            for entry in data:
-                # Remove empty keys to avoid writing unnecessary columns
-                cleaned_entry = {k: v for k, v in entry.items() if v}
-                writer.writerow(cleaned_entry)
-        print(f"{event_type.capitalize()} events have been written to {output_file}")
+        df.to_csv(output_file, index=False)
+        # Print only on debug or standalone, and not when imported by run_all.py for Excel generation
+        if os.getenv("DEBUG") == "1" or (__name__ == "__main__" and not sys.argv[0].endswith('run_all.py')):
+            print(f"[autofocus_analysis] {event_type_key.replace('_', ' ').capitalize()} events have been written to {output_file}")
     except Exception as e:
-        print(f"An error occurred while writing {event_type} events to CSV: {e}")
+        print(f"[autofocus_analysis] Error writing CSV for {event_type_key} to {output_file}: {e}")
+
+def generate_event_dataframes():
+    """Processes autorun logs and returns a dictionary of DataFrames, one for each event type."""
+    if not RAW_DIR or not os.path.exists(RAW_DIR):
+        print(f"[autofocus_analysis] RAW_DIR not found or not set: {RAW_DIR}")
+        return {}
+    
+    log_files = find_log_files(RAW_DIR, AUTORUN_LOG_PREFIX)
+    if not log_files:
+        print(f"[autofocus_analysis] No autorun logs found with prefix '{AUTORUN_LOG_PREFIX}' in {RAW_DIR}")
+        return {}
+
+    latest_log_file = sorted(log_files)[-1] 
+    if os.getenv("DEBUG") == "1" or (__name__ == "__main__" and not sys.argv[0].endswith('run_all.py')):
+         print(f"[autofocus_analysis] Parsing log file: {latest_log_file}")
+    
+    parsed_data_lists = parse_log_file_to_data_lists(latest_log_file)
+
+    event_dataframes = {}
+    for event_type, data_list in parsed_data_lists.items():
+        if data_list: 
+            df = pd.DataFrame(data_list)
+            # Standardize column names for better consistency if needed here
+            # Example: df.columns = [col.replace(' ', '_').replace('#', 'Num') for col in df.columns]
+            event_dataframes[event_type] = df
+        else:
+            if os.getenv("DEBUG") == "1":
+                print(f"[autofocus_analysis] No data found for event type: {event_type}")
+    
+    return event_dataframes
 
 def main():
-    # Ensure the log directory exists
-    if not os.path.isdir(RAW_DIR):
-        print(f"Error: The log directory '{RAW_DIR}' does not exist.")
-        return
+    # This function is now primarily for standalone execution.
+    # run_all.py will call generate_event_dataframes() directly.
+    event_dataframes = generate_event_dataframes()
 
-    # Find all relevant log files
-    log_files = find_log_files(RAW_DIR, AUTORUN_LOG_PREFIX)
+    if __name__ == "__main__": 
+        if not event_dataframes:
+            print("[autofocus_analysis] No event dataframes were generated.")
+            return
+        # Use a fresh copy of OUTPUT_CSV_FILES for standalone CSV writing
+        standalone_csv_map = OUTPUT_CSV_FILES.copy()
+        for event_type, df in event_dataframes.items():
+            write_csv_from_df(event_type, df, standalone_csv_map)
+    
+    return event_dataframes 
 
-    if not log_files:
-        print(f"No log files found with prefix '{AUTORUN_LOG_PREFIX}' in directory '{RAW_DIR}'.")
-        return
-
-    # Parse each log file
-    for log_file in log_files:
-        print(f"Parsing log file: {log_file}")
-        parse_log_file(log_file)
-
-    # Write each event type to its respective CSV
-    for event_type, data in EVENT_DATA.items():
-        write_csv(event_type, data)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
+    import sys # Needed for the check in write_csv_from_df
     main()

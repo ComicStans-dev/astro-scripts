@@ -3,6 +3,7 @@ import re
 import glob
 import math
 import numpy as np
+import pandas as pd
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from utils.paths import RAW_DIR, out_path
@@ -11,6 +12,9 @@ from astropy.io import fits
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 from astropy.time import Time
 import astropy.units as u
+import sep  # NEW: Source Extractor library for star detection and HFR
+from astroplan import moon_illumination  # NEW: moon illumination
+from astropy.coordinates import get_moon  # NEW: moon position
 
 try:
     import zoneinfo
@@ -108,68 +112,220 @@ def get_image_stats(fits_hdul):
     data = fits_hdul[0].data
     return float(np.mean(data)), float(np.std(data))
 
-def main():
-    # Recursively search for FITS files in the directory and subdirectories.
+def hfr_stats(data, thresh_sigma: float = 3.0):
+    """Return (mean_hfr, std_hfr, n_stars) for a 2-D numpy array.
+
+    Uses `sep` to detect sources and compute the half-flux radius (HFR).
+    Values are in pixels.  If no stars are found, returns (nan, nan, 0).
+    """
+    # Determine if debug output is enabled via environment variable
+    debug_hfr = os.getenv("DEBUG") == "1"
+    try:
+        # SEP expects float32, contiguous array
+        data_f32 = np.ascontiguousarray(data.astype(np.float32))
+        # Build background model & subtract
+        bkg = sep.Background(data_f32)
+        
+        if debug_hfr:
+            print(f"[altaz_stats DEBUG hfr_stats] Background RMS: {bkg.globalrms:.4f}")
+            
+        data_sub = data_f32 - bkg.back()
+        
+        current_threshold = thresh_sigma * bkg.globalrms
+        if debug_hfr:
+            print(f"[altaz_stats DEBUG hfr_stats] Detection Threshold (sigma * RMS): {current_threshold:.4f}")
+            
+        objects = sep.extract(data_sub, thresh_sigma * bkg.globalrms)
+        
+        num_detected_objects = len(objects)
+        if debug_hfr:
+            print(f"[altaz_stats DEBUG hfr_stats] Number of objects detected by sep.extract: {num_detected_objects}")
+            
+        if num_detected_objects == 0:
+            return np.nan, np.nan, 0
+            
+        # Create an array of radii, one for each object
+        # All objects will use the same max integration radius of 6.0 pixels
+        radii_arr = np.full(num_detected_objects, 6.0)
+
+        # half-flux radius for each source (0.5 => HFR)
+        half_r, flags = sep.flux_radius( # MODIFIED: Expect only 2 return values
+            data_sub,
+            objects['x'], objects['y'],
+            radii_arr,      # MODIFIED: Use an array of radii
+            0.5,            # 50 % flux radius
+            subpix=5
+        )
+        
+        # Filter out problematic HFR calculations based on flags if necessary
+        # For now, we'll use all valid HFR values returned
+        valid_hfr = half_r[np.isfinite(half_r) & (flags == 0)]
+
+        if debug_hfr:
+            print(f"[altaz_stats DEBUG hfr_stats] Raw HFR values: {half_r}")
+            print(f"[altaz_stats DEBUG hfr_stats] SEP flags: {flags}")
+            print(f"[altaz_stats DEBUG hfr_stats] Valid HFR values after filtering: {valid_hfr}")
+
+        if len(valid_hfr) == 0:
+            return np.nan, np.nan, num_detected_objects # Still report num_detected_objects
+
+        return float(np.mean(valid_hfr)), float(np.std(valid_hfr)), int(len(valid_hfr))
+    except Exception as e:
+        if debug_hfr:
+            print(f"[altaz_stats] hfr_stats failed: {e}")
+        return np.nan, np.nan, 0
+
+def moon_parameters(local_dt: datetime, target_coord: SkyCoord):
+    """Return dict with moon_alt, moon_sep, moon_illum (0-100%)."""
+    try:
+        # Convert local datetime to UTC astropy Time
+        t_utc = Time(local_dt.astimezone(zoneinfo.ZoneInfo("UTC")))
+        moon_icrs = get_moon(t_utc, location=observer_location)
+        moon_altaz = moon_icrs.transform_to(AltAz(obstime=t_utc, location=observer_location))
+        illum_frac = moon_illumination(t_utc)  # 0-1
+        separation = moon_icrs.separation(target_coord).deg
+        return {
+            "moon_alt": float(moon_altaz.alt.deg),
+            "moon_sep": float(separation),
+            "moon_illum": float(illum_frac * 100.0)
+        }
+    except Exception as e:
+        if os.getenv("DEBUG") == "1":
+            print(f"[altaz_stats] moon_parameters failed: {e}")
+        return {"moon_alt": np.nan, "moon_sep": np.nan, "moon_illum": np.nan}
+
+def generate_altaz_stats_df():
     fits_files = glob.glob(os.path.join(RAW_DIR, '**', '*.fits'), recursive=True)
     fits_files += glob.glob(os.path.join(RAW_DIR, '**', '*.fit'), recursive=True)
     fits_files.sort()
 
-    # Determine the imaging date from the first FITS file (if available)
-    if fits_files:
-        first_file = os.path.basename(fits_files[0])
-        local_dt = parse_local_time_from_filename(first_file)
-        if local_dt:
-            date_str = local_dt.strftime("%m-%d-%Y")
-        else:
-            # Fall back to using the folder name if parsing fails
-            date_str = os.path.basename(os.path.normpath(RAW_DIR))
-    else:
-        # If no FITS files found, still try to use the folder name
-        date_str = os.path.basename(os.path.normpath(RAW_DIR))
+    if not fits_files:
+        print("[altaz_stats] No FITS files found.")
+        return pd.DataFrame(), pd.DataFrame() # Return two empty DFs
 
-    # Generate CSV filename dynamically with the imaging date at the beginning
-    csv_filename = f"altaz_stats_{date_str}.csv"
-    output_csv_path = out_path(csv_filename)
+    data_rows = []
+    first_header_data = []
+    first_file_processed = False
 
-    # Informative print
-    print(f"[altaz] CSV will be saved at: {output_csv_path}")
+    for fpath in fits_files:
+        fname = os.path.basename(fpath)
+        try:
+            with fits.open(fpath) as hdul:
+                header = hdul[0].header
 
-    with open(output_csv_path, "w", encoding="utf-8") as csv_out:
-        csv_out.write("filename,local_time,alt_deg,az_deg,mean_pix,std_pix\n")
+                # --- Process First Header --- 
+                if not first_file_processed:
+                    for card in header.cards:
+                        key = card.keyword
+                        if key in ['COMMENT', 'HISTORY', '']:
+                             continue
+                        value = str(card.value)
+                        comment = card.comment
+                        first_header_data.append({
+                            "Key": key,
+                            "Value": value,
+                            "Comment": comment,
+                        })
+                    first_file_processed = True
+                # --- End First Header --- 
 
-        for fpath in fits_files:
-            fname = os.path.basename(fpath)
-            try:
-                # 1) Parse local time from filename
                 local_dt = parse_local_time_from_filename(fname)
                 if local_dt is None:
-                    print(f"Could not parse timestamp from {fname}; skipping.")
+                    if os.getenv("DEBUG") == "1":
+                        print(f"[altaz_stats] Could not parse timestamp from {fname}; skipping.")
                     continue
 
-                # 2) RA/DEC from FITS header
-                with fits.open(fpath) as hdul:
-                    header = hdul[0].header
-                    ra_deg, dec_deg = get_radec_from_header(header)
-                    mean_val, std_val = get_image_stats(hdul)
+                ra_deg, dec_deg = get_radec_from_header(header)
+                mean_val, std_val = get_image_stats(hdul)
 
-                # 3) Alt/Az at that local time
+                # NEW: HFR statistics
+                mean_hfr, std_hfr, n_stars = hfr_stats(hdul[0].data)
+
                 alt_deg, az_deg = calc_altaz(local_dt, ra_deg, dec_deg)
 
-                # 4) Excel-friendly time: "YYYY-MM-DD HH:MM:SS"
+                # NEW: moon parameters relative to this frame
+                target_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame="icrs")
+                moon_info = moon_parameters(local_dt, target_coord)
+
                 excel_time_str = local_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-                # 5) Write row to CSV
-                csv_out.write(f"{fname},{excel_time_str},{alt_deg:.3f},"
-                              f"{az_deg:.3f},{mean_val:.2f},{std_val:.2f}\n")
+                data_rows.append({
+                    "filename": fname,
+                    "local_time": excel_time_str,
+                    "alt_deg": round(alt_deg, 3),
+                    "az_deg": round(az_deg, 3),
+                    "mean_pix": round(mean_val, 2),
+                    "std_pix": round(std_val, 2),
+                    "hfr_mean": round(mean_hfr, 3) if not math.isnan(mean_hfr) else np.nan,
+                    "hfr_std": round(std_hfr, 3) if not math.isnan(std_hfr) else np.nan,
+                    "n_stars": n_stars,
+                    "moon_alt": round(moon_info["moon_alt"], 2) if not math.isnan(moon_info["moon_alt"]) else np.nan,
+                    "moon_sep": round(moon_info["moon_sep"], 2) if not math.isnan(moon_info["moon_sep"]) else np.nan,
+                    "moon_illum": round(moon_info["moon_illum"], 1) if not math.isnan(moon_info["moon_illum"]) else np.nan
+                })
 
-                # Print to console in a friendlier format
-                friendly_str = local_dt.strftime("%m/%d/%Y %I:%M:%S %p %Z")
-                print(f"{fname} => LocalTime:{friendly_str}, "
-                      f"Alt:{alt_deg:.2f}°, Az:{az_deg:.2f}°, "
-                      f"Mean:{mean_val:.2f}, Std:{std_val:.2f}")
+                if os.getenv("DEBUG") == "1":
+                    friendly_str = local_dt.strftime("%m/%d/%Y %I:%M:%S %p %Z")
+                    debug_msg = (
+                        f"[altaz_stats] {fname} => LocalTime:{friendly_str}, Alt:{alt_deg:.2f}°, Az:{az_deg:.2f}°, "
+                        f"Mean:{mean_val:.2f}, Std:{std_val:.2f}, HFR:{mean_hfr:.2f}±{std_hfr:.2f} (n={n_stars}), "
+                        f"MoonIllum:{moon_info['moon_illum']:.1f}%, MoonAlt:{moon_info['moon_alt']:.1f}°, "
+                        f"MoonSep:{moon_info['moon_sep']:.1f}°"
+                    )
+                    print(debug_msg)
 
-            except Exception as e:
-                print(f"Error processing {fname}: {e}")
+        except Exception as e:
+            if os.getenv("DEBUG") == "1":
+                print(f"[altaz_stats] Error processing {fname}: {e}")
+
+    first_header_df = pd.DataFrame(first_header_data)
+    altaz_stats_df = pd.DataFrame(data_rows)
+    return altaz_stats_df, first_header_df # Return both DataFrames
+
+def main():
+    # Determine the imaging date from the first FITS file (if available)
+    # This logic is primarily for naming the standalone CSV.
+    # For Excel output, run_all.py will handle the main report naming.
+    date_str = datetime.now().strftime("%Y%m%d") # Default date string
+    fits_files_check = glob.glob(os.path.join(RAW_DIR, '**', '*.f*'), recursive=True)
+    if fits_files_check:
+        first_file = os.path.basename(sorted(fits_files_check)[0])
+        local_dt_check = parse_local_time_from_filename(first_file)
+        if local_dt_check:
+            date_str = local_dt_check.strftime("%m-%d-%Y")
+        else:
+            # Fall back to using the folder name if parsing fails
+            base_raw_dir = os.path.basename(os.path.normpath(RAW_DIR))
+            if base_raw_dir:
+                date_str = base_raw_dir
+    else:
+        base_raw_dir = os.path.basename(os.path.normpath(RAW_DIR))
+        if base_raw_dir:
+            date_str = base_raw_dir
+
+    altaz_df, first_header_df = generate_altaz_stats_df() # Get both dataframes
+
+    if __name__ == "__main__": # Only write CSV if run as a script
+        if not altaz_df.empty:
+            csv_filename = f"altaz_stats_{date_str}.csv"
+            output_csv_path = out_path(csv_filename)
+            print(f"[altaz_stats] CSV will be saved at: {output_csv_path}")
+            altaz_df.to_csv(output_csv_path, index=False)
+            # The original print to console logic is now inside generate_altaz_stats_df under DEBUG flag
+        else:
+            print("[altaz_stats] No data generated to write to CSV.")
+
+        # Optionally write first header to a separate CSV if run standalone
+        if not first_header_df.empty:
+             header_csv_filename = f"fits_header_first_img_{date_str}.csv"
+             header_output_path = out_path(header_csv_filename)
+             try:
+                 first_header_df.to_csv(header_output_path, index=False)
+                 print(f"[altaz_stats] First FITS header saved to: {header_output_path}")
+             except Exception as e:
+                 print(f"[altaz_stats] Error writing FITS header CSV: {e}")
+
+    return altaz_df, first_header_df # Return both dfs
 
 if __name__ == "__main__":
     main()
